@@ -4,13 +4,6 @@ on:
   push:
     branches:
       - main
-  pull_request:
-    branches:
-      - main
-  watch:
-    types: 
-      - started
-      - ended
   workflow_dispatch:
 
 jobs:
@@ -31,15 +24,18 @@ jobs:
       - name: Detect changes
         id: changes
         run: |
-          git diff --quiet
-          echo "::set-output name=changed::$?"
+          if git diff-index --quiet HEAD --; then
+            echo "::set-output name=changed::false"
+          else
+            echo "::set-output name=changed::true"
+          fi
 
       - name: Commit changes
-        if: steps.changes.outputs.changed == '0'
+        if: steps.changes.outputs.changed == 'true'
         run: |
           git add .
           git commit -m "Auto commit changes"
       
       - name: Push changes
-        if: steps.changes.outputs.changed == '0'
+        if: steps.changes.outputs.changed == 'true'
         run: git push origin main

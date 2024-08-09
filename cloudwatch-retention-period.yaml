@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: A template to deploy a Lambda function that sets the retention period for CloudWatch log groups.
+Description: A template to deploy a Lambda function that sets the retention period for CloudWatch log groups with Event Bridge Rule
 
 Parameters:
   RetentionInDays:
