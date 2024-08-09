@@ -1,0 +1,3 @@
+template-file-path: cloudwatch-retention-period.yaml
+parameters: {}
+tags: {}
