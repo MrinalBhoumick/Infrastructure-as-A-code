@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: A template to deploy a Lambda function that sets the retention period for CloudWatch log groups with Event Bridge Rule
+Description: A template to deploy a Lambda function that sets the retention period for newly created CloudWatch log groups.
 
 Parameters:
   RetentionInDays:
@@ -48,7 +48,6 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
-                  - logs:DescribeLogGroups
                   - logs:PutRetentionPolicy
                   - logs:CreateLogGroup
                   - logs:CreateLogStream
@@ -70,26 +69,30 @@ Resources:
               try:
                   client = boto3.client('logs')
 
+                  # Ensure 'retentionInDays' is provided and is an integer
                   retention_in_days = int(os.environ.get('retentionInDays', '60'))
 
-                  paginator = client.get_paginator('describe_log_groups')
-                  page_iterator = paginator.paginate()
+                  # Extract log group name from the EventBridge event
+                  log_group_name = event['detail']['requestParameters']['logGroupName']
 
-                  for page in page_iterator:
-                      for log_group in page['logGroups']:
-                          log_group_name = log_group['logGroupName']
-
-                          client.put_retention_policy(
-                              logGroupName=log_group_name,
-                              retentionInDays=retention_in_days
-                          )
-                          print(f"Applied {retention_in_days} days retention to {log_group_name}")
+                  # Apply the retention policy to the newly created log group
+                  client.put_retention_policy(
+                      logGroupName=log_group_name,
+                      retentionInDays=retention_in_days
+                  )
+                  print(f"Applied {retention_in_days} days retention to {log_group_name}")
 
                   return {
                       'statusCode': 200,
-                      'body': f'Retention policy applied to all log groups with {retention_in_days} days.'
+                      'body': f'Retention policy applied to log group {log_group_name} with {retention_in_days} days.'
                   }
 
+              except KeyError as e:
+                  print(f"KeyError: {str(e)} - Could not find the expected key in the event data.")
+                  return {
+                      'statusCode': 400,
+                      'body': 'Bad request. Could not find the expected log group name in the event data.'
+                  }
               except ValueError as e:
                   print(f"Error converting 'retentionInDays' to an integer: {str(e)}")
                   return {
