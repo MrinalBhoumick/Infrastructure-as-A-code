@@ -1,0 +1,141 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: A template to deploy a Lambda function that sets the retention period for CloudWatch log groups.
+
+Parameters:
+  RetentionInDays:
+    Type: Number
+    Description: The number of days to retain log events in the log group.
+    Default: 60
+    AllowedValues:
+      - 1
+      - 3
+      - 5
+      - 7
+      - 14
+      - 30
+      - 60
+      - 90
+      - 120
+      - 150
+      - 180
+      - 365
+      - 400
+      - 545
+      - 731
+      - 1096
+      - 1827
+      - 2192
+      - 2557
+      - 2922
+      - 3288
+      - 3653
+
+Resources:
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CloudWatchLogsPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:DescribeLogGroups
+                  - logs:PutRetentionPolicy
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+
+  LogGroupRetentionLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: cloudwatch-retention-lambda
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          import boto3
+          import os
+
+          def lambda_handler(event, context):
+              try:
+                  client = boto3.client('logs')
+
+                  retention_in_days = int(os.environ.get('retentionInDays', '60'))
+
+                  paginator = client.get_paginator('describe_log_groups')
+                  page_iterator = paginator.paginate()
+
+                  for page in page_iterator:
+                      for log_group in page['logGroups']:
+                          log_group_name = log_group['logGroupName']
+
+                          client.put_retention_policy(
+                              logGroupName=log_group_name,
+                              retentionInDays=retention_in_days
+                          )
+                          print(f"Applied {retention_in_days} days retention to {log_group_name}")
+
+                  return {
+                      'statusCode': 200,
+                      'body': f'Retention policy applied to all log groups with {retention_in_days} days.'
+                  }
+
+              except ValueError as e:
+                  print(f"Error converting 'retentionInDays' to an integer: {str(e)}")
+                  return {
+                      'statusCode': 500,
+                      'body': "Error in lambda execution. 'retentionInDays' must be an integer."
+                  }
+              except Exception as e:
+                  print(f"Error during lambda execution: {str(e)}")
+                  return {
+                      'statusCode': 500,
+                      'body': 'An error occurred during lambda execution.'
+                  }
+
+      Runtime: python3.12
+      Environment:
+        Variables:
+          retentionInDays: !Ref RetentionInDays
+      Timeout: 300
+
+  CloudWatchLogsEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: CloudWatchLogsNewLogGroupRule
+      EventPattern:
+        source:
+          - aws.logs
+        detail-type:
+          - AWS API Call via CloudTrail
+        detail:
+          eventSource:
+            - logs.amazonaws.com
+          eventName:
+            - CreateLogGroup
+      Targets:
+        - Arn: !GetAtt LogGroupRetentionLambda.Arn
+          Id: "TargetFunction"
+
+  LambdaPermissionForEventBridge:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LogGroupRetentionLambda
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt CloudWatchLogsEventRule.Arn
+
+Outputs:
+  LambdaFunctionARN:
+    Description: The ARN of the Lambda function
+    Value: !GetAtt LogGroupRetentionLambda.Arn
